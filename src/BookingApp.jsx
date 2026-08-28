@@ -531,6 +531,9 @@ export default function BookingApp() {
                     style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.line}`, color: COLORS.textHi }}
                   />
                 </div>
+              </div>
+
+              {consultandoCliente && (
                 <p style={{ color: COLORS.textLo, fontSize: 11 }}>Consultando historial del cliente...</p>
               )}
               {!consultandoCliente && juegosPagados !== null && (
