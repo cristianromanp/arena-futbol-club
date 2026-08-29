@@ -86,6 +86,7 @@ export default function BookingApp() {
   const [canchas, setCanchas] = useState([]);
   const [tarifas, setTarifas] = useState([]);
   const [reservasDelDia, setReservasDelDia] = useState([]);
+  const [reservasFijas, setReservasFijas] = useState([]);
 
   const today = useMemo(() => new Date(), []);
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -109,12 +110,14 @@ export default function BookingApp() {
   useEffect(() => {
     (async () => {
       try {
-        const [cs, ts] = await Promise.all([
+        const [cs, ts, fj] = await Promise.all([
           sb("canchas?activa=eq.true&order=nombre.asc"),
           sb("tarifas?select=*"),
+          sb("reservas?es_fija=eq.true&estado=eq.confirmada&select=cancha_id,hora,fecha"),
         ]);
         setCanchas(cs);
         setTarifas(ts);
+        setReservasFijas(fj);
       } catch (e) {
         setError(e.message);
       } finally {
@@ -138,7 +141,15 @@ export default function BookingApp() {
   }, [fecha]);
 
   function ocupada(canchaId, h) {
-    return reservasDelDia.some((r) => r.cancha_id === canchaId && r.hora.slice(0, 5) === h);
+    const exacta = reservasDelDia.some((r) => r.cancha_id === canchaId && r.hora.slice(0, 5) === h);
+    if (exacta) return true;
+    if (!fecha) return false;
+    const diaSemana = fecha.getDay();
+    return reservasFijas.some((r) => {
+      if (r.cancha_id !== canchaId || r.hora.slice(0, 5) !== h) return false;
+      const origen = new Date(r.fecha + "T00:00:00");
+      return origen.getDay() === diaSemana && origen <= fecha;
+    });
   }
   function canchaTieneCupo(c) {
     return FRANJAS.some((h) => !ocupada(c.id, h) && precioParaHora(tarifas, c.formato, h));
@@ -152,16 +163,15 @@ export default function BookingApp() {
     }
     setConsultandoCliente(true);
     try {
-      const existentes = await sb(`clientes?cedula=eq.${encodeURIComponent(cedula)}`);
-      if (existentes.length === 0) {
+      const res = await sb("rpc/buscar_cliente_por_cedula", {
+        method: "POST",
+        body: JSON.stringify({ p_cedula: cedula }),
+      });
+      if (!res || res.length === 0) {
         setJuegosPagados(0);
         return;
       }
-      const clienteId = existentes[0].id;
-      const rs = await sb(
-        `reservas?cliente_id=eq.${clienteId}&estado=eq.confirmada&deposito_pagado=eq.true&select=id`
-      );
-      setJuegosPagados(rs.length % JUEGOS_PARA_GRATIS);
+      setJuegosPagados(res[0].juegos_pagados % JUEGOS_PARA_GRATIS);
     } catch (e) {
       setJuegosPagados(null);
     } finally {
@@ -184,25 +194,38 @@ export default function BookingApp() {
     setError("");
     try {
       let clienteId;
-      const existentes = await sb(`clientes?cedula=eq.${encodeURIComponent(cedula)}`);
-      if (existentes.length > 0) {
-        clienteId = existentes[0].id;
-        if (fechaNacimiento && !existentes[0].fecha_nacimiento) {
+      const res = await sb("rpc/buscar_cliente_por_cedula", {
+        method: "POST",
+        body: JSON.stringify({ p_cedula: cedula }),
+      });
+
+      if (res && res.length > 0 && res[0].id) {
+        clienteId = res[0].id;
+        if (fechaNacimiento) {
           await sb(`clientes?id=eq.${clienteId}`, {
             method: "PATCH",
+            prefer: "return=minimal",
             body: JSON.stringify({ fecha_nacimiento: fechaNacimiento }),
           });
         }
       } else {
-        const nuevo = await sb("clientes", {
+        clienteId = crypto.randomUUID();
+        await sb("clientes", {
           method: "POST",
-          body: JSON.stringify({ nombre, cedula, telefono, fecha_nacimiento: fechaNacimiento || null }),
+          prefer: "return=minimal",
+          body: JSON.stringify({
+            id: clienteId,
+            nombre,
+            cedula,
+            telefono,
+            fecha_nacimiento: fechaNacimiento || null,
+          }),
         });
-        clienteId = nuevo[0].id;
       }
 
       await sb("reservas", {
         method: "POST",
+        prefer: "return=minimal",
         body: JSON.stringify({
           cancha_id: cancha.id,
           cliente_id: clienteId,
@@ -214,6 +237,7 @@ export default function BookingApp() {
           es_gratis: seraGratis,
           descuento_porcentaje: descuentoPct,
           motivo_descuento: esCumple ? "cumpleaños" : null,
+          es_fija: false,
         }),
       });
 
