@@ -334,6 +334,9 @@ function Panel({ sesion, onLogout }) {
                     </span>
                     <span>{r.canchas?.nombre}</span>
                     <span>{r.canchas?.formato}</span>
+                    {r.es_fija && (
+                      <span style={{ color: COLORS.orangeBright, fontWeight: 700, fontSize: 11 }}>· FIJA</span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 mt-3 flex-wrap">
@@ -410,6 +413,7 @@ function NuevaReserva({ token, canchas, tarifas, onCreada }) {
   const [telefono, setTelefono] = useState("");
   const [depositoPagado, setDepositoPagado] = useState(true);
   const [descuento, setDescuento] = useState(0);
+  const [esFija, setEsFija] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
   const [ok, setOk] = useState(false);
@@ -456,11 +460,12 @@ function NuevaReserva({ token, canchas, tarifas, onCreada }) {
           monto_deposito: 50000,
           descuento_porcentaje: descuento,
           motivo_descuento: descuento > 0 ? "manual" : null,
+          es_fija: esFija,
         }),
       });
 
       setOk(true);
-      setNombre(""); setCedula(""); setTelefono(""); setCancha(null); setDescuento(0);
+      setNombre(""); setCedula(""); setTelefono(""); setCancha(null); setDescuento(0); setEsFija(false);
       setTimeout(() => onCreada(), 700);
     } catch (e) {
       setError(e.message);
@@ -554,6 +559,20 @@ function NuevaReserva({ token, canchas, tarifas, onCreada }) {
           style={{ background: depositoPagado ? COLORS.orange : COLORS.surfaceAlt2, color: depositoPagado ? "#0A0E14" : COLORS.textLo, fontWeight: 700 }}
         >
           {depositoPagado ? "Sí" : "No"}
+        </button>
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg px-3.5 py-2.5" style={{ background: COLORS.surfaceAlt, border: `1px solid ${COLORS.line}` }}>
+        <div>
+          <div style={{ fontSize: 13 }}>¿Reserva fija?</div>
+          <div style={{ fontSize: 11, color: COLORS.textLo }}>Se repite esta cancha/hora cada semana hasta que la canceles</div>
+        </div>
+        <button
+          onClick={() => setEsFija(!esFija)}
+          className="px-3 py-1 rounded-full text-xs shrink-0 ml-3"
+          style={{ background: esFija ? COLORS.orange : COLORS.surfaceAlt2, color: esFija ? "#0A0E14" : COLORS.textLo, fontWeight: 700 }}
+        >
+          {esFija ? "Sí" : "No"}
         </button>
       </div>
 
