@@ -2,9 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { ChevronLeft, ChevronRight, Check, Clock, Users, Zap, MapPin, Gift } from "lucide-react";
 
 // ---- Conexión a Supabase (vía REST, sin librería adicional) ----
-const SUPABASE_URL = "https://tonrlhunxlslwdwiunxq.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvbnJsaHVueGxzbHdkd2l1bnhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MzE0MTQsImV4cCI6MjEwMzUwNzQxNH0.d_UFyIlLjJcaf451SMZXu0xoe7KW9NaI8VsiHiH7phs";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./lib/api.js";
 
 async function sb(path, options = {}) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -49,7 +47,7 @@ function fmtMoney(v) {
   return "$" + Number(v).toLocaleString("es-CO");
 }
 function toYMD(d) {
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function buildMonthGrid(year, month) {
   const first = new Date(year, month, 1);
@@ -77,6 +75,7 @@ function precioParaHora(tarifas, formato, hora) {
 }
 
 const JUEGOS_PARA_GRATIS = 10;
+const DEPOSITO_RESERVA = 10000; // depósito para separar una reserva del día
 
 export default function BookingApp() {
   const [step, setStep] = useState(1);
@@ -87,6 +86,7 @@ export default function BookingApp() {
   const [tarifas, setTarifas] = useState([]);
   const [reservasDelDia, setReservasDelDia] = useState([]);
   const [reservasFijas, setReservasFijas] = useState([]);
+  const [excepciones, setExcepciones] = useState(new Set()); // fijas que no se juegan ese día
 
   const today = useMemo(() => new Date(), []);
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -113,7 +113,7 @@ export default function BookingApp() {
         const [cs, ts, fj] = await Promise.all([
           sb("canchas?activa=eq.true&order=nombre.asc"),
           sb("tarifas?select=*"),
-          sb("reservas?es_fija=eq.true&estado=eq.confirmada&select=cancha_id,hora,fecha"),
+          sb("reservas?es_fija=eq.true&estado=eq.confirmada&select=id,cancha_id,hora,fecha"),
         ]);
         setCanchas(cs);
         setTarifas(ts);
@@ -130,10 +130,12 @@ export default function BookingApp() {
     if (!fecha) return;
     (async () => {
       try {
-        const rs = await sb(
-          `reservas?fecha=eq.${toYMD(fecha)}&estado=eq.confirmada&select=cancha_id,hora`
-        );
+        const [rs, ex] = await Promise.all([
+          sb(`reservas?fecha=eq.${toYMD(fecha)}&estado=eq.confirmada&select=cancha_id,hora`),
+          sb(`reserva_excepciones?fecha=eq.${toYMD(fecha)}&select=reserva_id`),
+        ]);
         setReservasDelDia(rs);
+        setExcepciones(new Set((ex || []).map((e) => e.reserva_id)));
       } catch (e) {
         setError(e.message);
       }
@@ -146,7 +148,7 @@ export default function BookingApp() {
     if (!fecha) return false;
     const diaSemana = fecha.getDay();
     return reservasFijas.some((r) => {
-      if (r.cancha_id !== canchaId || r.hora.slice(0, 5) !== h) return false;
+      if (r.cancha_id !== canchaId || r.hora.slice(0, 5) !== h || excepciones.has(r.id)) return false;
       const origen = new Date(r.fecha + "T00:00:00");
       return origen.getDay() === diaSemana && origen <= fecha;
     });
@@ -202,10 +204,10 @@ export default function BookingApp() {
       if (res && res.length > 0 && res[0].id) {
         clienteId = res[0].id;
         if (fechaNacimiento) {
-          await sb(`clientes?id=eq.${clienteId}`, {
-            method: "PATCH",
+          await sb("rpc/guardar_cumpleanos", {
+            method: "POST",
             prefer: "return=minimal",
-            body: JSON.stringify({ fecha_nacimiento: fechaNacimiento }),
+            body: JSON.stringify({ p_cliente: clienteId, p_fecha: fechaNacimiento }),
           });
         }
       } else {
@@ -233,7 +235,7 @@ export default function BookingApp() {
           hora,
           estado: "confirmada",
           deposito_pagado: seraGratis ? true : false,
-          monto_deposito: seraGratis ? 0 : 50000,
+          monto_deposito: seraGratis ? 0 : DEPOSITO_RESERVA,
           es_gratis: seraGratis,
           descuento_porcentaje: descuentoPct,
           motivo_descuento: esCumple ? "cumpleaños" : null,
@@ -515,7 +517,7 @@ export default function BookingApp() {
                 <div className="flex justify-between mt-1" style={{ fontSize: 13 }}>
                   <span style={{ color: COLORS.textLo }}>Depósito para reservar</span>
                   <span style={{ fontWeight: 800, color: seraGratis ? COLORS.turfBright : COLORS.flood }}>
-                    {seraGratis ? "GRATIS 🎉" : fmtMoney(50000)}
+                    {seraGratis ? "GRATIS 🎉" : fmtMoney(DEPOSITO_RESERVA)}
                   </span>
                 </div>
               </div>
